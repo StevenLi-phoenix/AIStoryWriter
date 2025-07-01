@@ -113,6 +113,25 @@ class Interface:
                         api_key=os.environ["OPENROUTER_API_KEY"], model=ProviderModel
                     )
 
+                elif Provider == "lmstudio":
+                    from Writer.Interface.LMStudio import LMStudio
+
+                    api_url = ModelHost if ModelHost else "http://localhost:1234/v1/chat/completions"
+                    # Fix: Ensure api_url is fully qualified
+                    if not api_url.startswith("http://") and not api_url.startswith("https://"):
+                        api_url = "http://" + api_url
+                    if not api_url.endswith("/v1/chat/completions"):
+                        if api_url.endswith("/"):
+                            api_url += "v1/chat/completions"
+                        else:
+                            api_url += "/v1/chat/completions"
+
+                    self.Clients[Model] = LMStudio(
+                        api_url=api_url,
+                        model=ProviderModel
+                    )
+                    print(f"LM Studio API URL is '{api_url}'")
+
                 elif Provider == "Anthropic":
                     raise NotImplementedError("Anthropic API not supported")
 
@@ -376,6 +395,31 @@ class Interface:
             Response = Client.chat(messages=_Messages, seed=Seed)
             _Messages.append({"role": "assistant", "content": Response})
 
+        elif Provider == "lmstudio":
+            # LM Studio supports OpenAI-compatible parameters
+            ValidParameters = [
+                "max_tokens",
+                "presence_penalty",
+                "frequency_penalty",
+                "repetition_penalty",
+                "response_format",
+                "temperature",
+                "seed",
+                "top_k",
+                "top_p",
+                "top_a",
+                "min_p",
+            ]
+            ModelOptions = ModelOptions if ModelOptions is not None else {}
+
+            Client = self.Clients[_Model]
+            Client.set_params(**ModelOptions)
+            Client.model = ProviderModel
+            print(ProviderModel)
+
+            Response = Client.chat(messages=_Messages, seed=Seed)
+            _Messages.append({"role": "assistant", "content": Response})
+
         elif Provider == "Anthropic":
             raise NotImplementedError("Anthropic API not supported")
 
@@ -412,6 +456,13 @@ class Interface:
                 ChunkText = chunk["message"]["content"]
             elif _Provider == "google":
                 ChunkText = chunk.text
+            elif _Provider == "lmstudio":
+                # LM Studio uses OpenAI-compatible streaming format
+                if "choices" in chunk and len(chunk["choices"]) > 0:
+                    delta = chunk["choices"][0].get("delta", {})
+                    ChunkText = delta.get("content", "")
+                else:
+                    ChunkText = ""
             else:
                 raise ValueError(f"Unsupported provider: {_Provider}")
 
@@ -448,6 +499,27 @@ class Interface:
             elif Provider == "openrouter":
                 Model = f"{parsed.netloc}{parsed.path}"
                 Host = None
+
+            elif Provider == "lmstudio":
+                # For LM Studio, the format should be lmstudio://model@host
+                # or lmstudio://model (defaults to localhost)
+                if "@" in parsed.netloc:
+                    Model, Host = parsed.netloc.split("@")
+                    # Add http:// if missing
+                    if not Host.startswith("http://") and not Host.startswith("https://"):
+                        Host = "http://" + Host
+                    # Add path if present in URL
+                    if parsed.path and parsed.path != "/":
+                        Host += parsed.path
+                    # Ensure /v1/chat/completions is present
+                    if not Host.endswith("/v1/chat/completions"):
+                        if Host.endswith("/"):
+                            Host += "v1/chat/completions"
+                        else:
+                            Host += "/v1/chat/completions"
+                else:
+                    Model = parsed.netloc
+                    Host = "http://localhost:1234/v1/chat/completions"
 
             elif "ollama" in _Model:
                 if "@" in parsed.path:

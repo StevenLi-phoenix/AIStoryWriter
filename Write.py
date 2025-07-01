@@ -1,5 +1,7 @@
 #!/bin/python3
 
+print("Write.py")
+
 import argparse
 import time
 import datetime
